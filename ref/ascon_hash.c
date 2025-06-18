@@ -19,14 +19,14 @@ void ascon_xof(uint8_t *out,size_t outlen, const uint8_t *in, size_t inlen)
   s.x[3] = 0;
   s.x[4] = 0;
   printstate("initial value", &s);
-  P12(&s);
+  P6(&s);
   printstate("initialization", &s);
 
   /* absorb full plaintext blocks */
   while (inlen >= ASCON_HASH_RATE) {
     s.x[0] ^= LOADBYTES(in, 8);
     printstate("absorb plaintext", &s);
-    P12(&s);
+    P6(&s);
     in += ASCON_HASH_RATE;
     inlen -= ASCON_HASH_RATE;
   }
@@ -34,14 +34,14 @@ void ascon_xof(uint8_t *out,size_t outlen, const uint8_t *in, size_t inlen)
   s.x[0] ^= LOADBYTES(in, inlen);
   s.x[0] ^= PAD(inlen);
   printstate("pad plaintext", &s);
-  P12(&s);
+  P6(&s);
 
   /* squeeze full output blocks */
   inlen = outlen;
   while (inlen > ASCON_HASH_RATE) {
     STOREBYTES(out, s.x[0], 8);
     printstate("squeeze output", &s);
-    P12(&s);
+    P6(&s);
     out += ASCON_HASH_RATE;
     inlen -= ASCON_HASH_RATE;
   }
