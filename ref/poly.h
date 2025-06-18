@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include "params.h"
+#include "ascon_hash.h"
 
 typedef struct {
   int32_t coeffs[N];

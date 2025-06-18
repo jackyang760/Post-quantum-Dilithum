@@ -4,7 +4,8 @@
 #include "ntt.h"
 #include "reduce.h"
 #include "rounding.h"
-#include "symmetric.h"
+#include <stdlib.h>  // 提供 malloc、free 的声明
+#include <string.h>  // 提供 memcpy 的声明
 
 #ifdef DBENCH
 #include "test/cpucycles.h"
@@ -349,10 +350,15 @@ void poly_uniform(poly *a,
   unsigned int i, ctr, off;
   unsigned int buflen = POLY_UNIFORM_NBLOCKS*STREAM128_BLOCKBYTES;
   uint8_t buf[POLY_UNIFORM_NBLOCKS*STREAM128_BLOCKBYTES + 2];
-  stream128_state state;
 
-  stream128_init(&state, seed, nonce);
-  stream128_squeezeblocks(buf, POLY_UNIFORM_NBLOCKS, &state);
+  uint8_t seed_nonce[SEEDBYTES+3];
+  memcpy(seed_nonce, seed, SEEDBYTES);
+
+  seed_nonce[SEEDBYTES] = nonce;
+  seed_nonce[SEEDBYTES + 1] = nonce >> 8;
+  seed_nonce[SEEDBYTES + 2] = 0;
+
+  ascon_xof(buf, POLY_UNIFORM_NBLOCKS*SHAKE128_RATE, seed_nonce, SEEDBYTES + 3);
 
   ctr = rej_uniform(a->coeffs, N, buf, buflen);
 
@@ -361,7 +367,9 @@ void poly_uniform(poly *a,
     for(i = 0; i < off; ++i)
       buf[i] = buf[buflen - off + i];
 
-    stream128_squeezeblocks(buf + off, 1, &state);
+    seed_nonce[SEEDBYTES + 2]++;
+    ascon_xof(buf + off, SHAKE128_RATE, seed_nonce, SEEDBYTES + 3);
+        
     buflen = STREAM128_BLOCKBYTES + off;
     ctr += rej_uniform(a->coeffs + ctr, N - ctr, buf, buflen);
   }
@@ -439,15 +447,20 @@ void poly_uniform_eta(poly *a,
   unsigned int ctr;
   unsigned int buflen = POLY_UNIFORM_ETA_NBLOCKS*STREAM256_BLOCKBYTES;
   uint8_t buf[POLY_UNIFORM_ETA_NBLOCKS*STREAM256_BLOCKBYTES];
-  stream256_state state;
 
-  stream256_init(&state, seed, nonce);
-  stream256_squeezeblocks(buf, POLY_UNIFORM_ETA_NBLOCKS, &state);
+  uint8_t seed_nonce[CRHBYTES+3];
+
+  memcpy(seed_nonce, seed, CRHBYTES);
+  seed_nonce[CRHBYTES] = nonce;
+  seed_nonce[CRHBYTES + 1] = nonce >> 8;
+  seed_nonce[CRHBYTES + 2] = 0;
+  ascon_xof(buf, POLY_UNIFORM_ETA_NBLOCKS*SHAKE256_RATE, seed_nonce, CRHBYTES + 3);
 
   ctr = rej_eta(a->coeffs, N, buf, buflen);
 
   while(ctr < N) {
-    stream256_squeezeblocks(buf, 1, &state);
+    seed_nonce[CRHBYTES+2]++;
+    ascon_xof(buf, SHAKE256_RATE, seed_nonce, CRHBYTES + 3);
     ctr += rej_eta(a->coeffs + ctr, N - ctr, buf, STREAM256_BLOCKBYTES);
   }
 }
@@ -469,10 +482,15 @@ void poly_uniform_gamma1(poly *a,
                          uint16_t nonce)
 {
   uint8_t buf[POLY_UNIFORM_GAMMA1_NBLOCKS*STREAM256_BLOCKBYTES];
-  stream256_state state;
 
-  stream256_init(&state, seed, nonce);
-  stream256_squeezeblocks(buf, POLY_UNIFORM_GAMMA1_NBLOCKS, &state);
+  uint8_t seed_nonce[CRHBYTES+3];
+
+  memcpy(seed_nonce, seed, CRHBYTES);
+  seed_nonce[CRHBYTES] = nonce;
+  seed_nonce[CRHBYTES + 1] = nonce >> 8;
+  seed_nonce[CRHBYTES + 2] = 0;
+  ascon_xof(buf, POLY_UNIFORM_GAMMA1_NBLOCKS*SHAKE256_RATE, seed_nonce, CRHBYTES + 3);
+  
   polyz_unpack(a, buf);
 }
 
@@ -490,12 +508,12 @@ void poly_challenge(poly *c, const uint8_t seed[CTILDEBYTES]) {
   unsigned int i, b, pos;
   uint64_t signs;
   uint8_t buf[SHAKE256_RATE];
-  keccak_state state;
 
-  shake256_init(&state);
-  shake256_absorb(&state, seed, CTILDEBYTES);
-  shake256_finalize(&state);
-  shake256_squeezeblocks(buf, 1, &state);
+  uint8_t extseed[SEEDBYTES + 1];
+  memcpy(extseed, seed, SEEDBYTES);
+  extseed[SEEDBYTES] = 0;
+
+  ascon_xof(buf, SHAKE256_RATE, extseed, SEEDBYTES + 1);
 
   signs = 0;
   for(i = 0; i < 8; ++i)
@@ -507,7 +525,8 @@ void poly_challenge(poly *c, const uint8_t seed[CTILDEBYTES]) {
   for(i = N-TAU; i < N; ++i) {
     do {
       if(pos >= SHAKE256_RATE) {
-        shake256_squeezeblocks(buf, 1, &state);
+        extseed[SEEDBYTES]++;
+        ascon_xof(buf, SHAKE256_RATE, extseed, SEEDBYTES + 1);
         pos = 0;
       }
 

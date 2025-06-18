@@ -5,8 +5,8 @@
 #include "polyvec.h"
 #include "poly.h"
 #include "randombytes.h"
-#include "symmetric.h"
-#include "fips202.h"
+#include <stdlib.h>  // 提供 malloc、free 的声明
+#include <string.h>  // 提供 memcpy 的声明
 
 /*************************************************
 * Name:        crypto_sign_keypair
@@ -32,7 +32,8 @@ int crypto_sign_keypair(uint8_t *pk, uint8_t *sk) {
   randombytes(seedbuf, SEEDBYTES);
   seedbuf[SEEDBYTES+0] = K;
   seedbuf[SEEDBYTES+1] = L;
-  shake256(seedbuf, 2*SEEDBYTES + CRHBYTES, seedbuf, SEEDBYTES+2);
+  ascon_xof(seedbuf, 2*SEEDBYTES + CRHBYTES, seedbuf, SEEDBYTES+2);
+
   rho = seedbuf;
   rhoprime = rho + SEEDBYTES;
   key = rhoprime + CRHBYTES;
@@ -60,7 +61,7 @@ int crypto_sign_keypair(uint8_t *pk, uint8_t *sk) {
   pack_pk(pk, rho, &t1);
 
   /* Compute H(rho, t1) and write secret key */
-  shake256(tr, TRBYTES, pk, CRYPTO_PUBLICKEYBYTES);
+  ascon_xof(tr, TRBYTES, pk, CRYPTO_PUBLICKEYBYTES); 
   pack_sk(sk, rho, tr, key, &t0, &s1, &s2);
 
   return 0;
@@ -86,9 +87,6 @@ int crypto_sign_signature_internal(uint8_t *sig,
                                    size_t *siglen,
                                    const uint8_t *m,
                                    size_t mlen,
-                                   const uint8_t *pre,
-                                   size_t prelen,
-                                   const uint8_t rnd[RNDBYTES],
                                    const uint8_t *sk)
 {
   unsigned int n;
@@ -98,7 +96,9 @@ int crypto_sign_signature_internal(uint8_t *sig,
   polyvecl mat[K], s1, y, z;
   polyveck t0, s2, w1, w0, h;
   poly cp;
-  keccak_state state;
+  
+  uint8_t *tr_msg = (uint8_t*)malloc(TRBYTES + mlen);
+  uint8_t mu_sig[CRHBYTES + K*POLYW1_PACKEDBYTES];
 
   rho = seedbuf;
   tr = rho + SEEDBYTES;
@@ -108,20 +108,12 @@ int crypto_sign_signature_internal(uint8_t *sig,
   unpack_sk(rho, tr, key, &t0, &s1, &s2, sk);
 
   /* Compute mu = CRH(tr, pre, msg) */
-  shake256_init(&state);
-  shake256_absorb(&state, tr, TRBYTES);
-  shake256_absorb(&state, pre, prelen);
-  shake256_absorb(&state, m, mlen);
-  shake256_finalize(&state);
-  shake256_squeeze(mu, CRHBYTES, &state);
+  memcpy(tr_msg, tr, TRBYTES);
+  memcpy(tr_msg + TRBYTES, m, mlen);
+  ascon_xof(mu, CRHBYTES, tr_msg, TRBYTES + mlen);
 
   /* Compute rhoprime = CRH(key, rnd, mu) */
-  shake256_init(&state);
-  shake256_absorb(&state, key, SEEDBYTES);
-  shake256_absorb(&state, rnd, RNDBYTES);
-  shake256_absorb(&state, mu, CRHBYTES);
-  shake256_finalize(&state);
-  shake256_squeeze(rhoprime, CRHBYTES, &state);
+  ascon_xof(rhoprime, CRHBYTES, key, SEEDBYTES + CRHBYTES);
 
   /* Expand matrix and transform vectors */
   polyvec_matrix_expand(mat, rho);
@@ -144,12 +136,10 @@ rej:
   polyveck_caddq(&w1);
   polyveck_decompose(&w1, &w0, &w1);
   polyveck_pack_w1(sig, &w1);
-
-  shake256_init(&state);
-  shake256_absorb(&state, mu, CRHBYTES);
-  shake256_absorb(&state, sig, K*POLYW1_PACKEDBYTES);
-  shake256_finalize(&state);
-  shake256_squeeze(sig, CTILDEBYTES, &state);
+  // 生成挑战cp：
+  memcpy(mu_sig, mu, CRHBYTES); // mu_sig = （μ|）
+  memcpy(mu_sig + CRHBYTES, sig, K*POLYW1_PACKEDBYTES); // mu_sig = （μ|w1）
+  ascon_xof(sig, CTILDEBYTES, mu_sig, CRHBYTES + K*POLYW1_PACKEDBYTES); // c = H(μ|W1) 哈希mu和w1的压缩形式（如4×192B=768B）得到32B的挑战种子c，写入sig头部32B
   poly_challenge(&cp, sig);
   poly_ntt(&cp);
 
@@ -185,6 +175,8 @@ rej:
   /* Write signature */
   pack_sig(sig, sig, &z, &h);
   *siglen = CRYPTO_BYTES;
+  free(tr_msg);
+  tr_msg = NULL;
   return 0;
 }
 
@@ -204,35 +196,13 @@ rej:
 * Returns 0 (success) or -1 (context string too long)
 **************************************************/
 int crypto_sign_signature(uint8_t *sig,
-                          size_t *siglen,
-                          const uint8_t *m,
-                          size_t mlen,
-                          const uint8_t *ctx,
-                          size_t ctxlen,
-                          const uint8_t *sk)
+  size_t *siglen,
+  const uint8_t *m,
+  size_t mlen,
+  const uint8_t *sk)
 {
-  size_t i;
-  uint8_t pre[257];
-  uint8_t rnd[RNDBYTES];
-
-  if(ctxlen > 255)
-    return -1;
-
-  /* Prepare pre = (0, ctxlen, ctx) */
-  pre[0] = 0;
-  pre[1] = ctxlen;
-  for(i = 0; i < ctxlen; i++)
-    pre[2 + i] = ctx[i];
-
-#ifdef DILITHIUM_RANDOMIZED_SIGNING
-  randombytes(rnd, RNDBYTES);
-#else
-  for(i=0;i<RNDBYTES;i++)
-    rnd[i] = 0;
-#endif
-
-  crypto_sign_signature_internal(sig,siglen,m,mlen,pre,2+ctxlen,rnd,sk);
-  return 0;
+crypto_sign_signature_internal(sig, siglen, m, mlen, sk);
+return 0;
 }
 
 /*************************************************
@@ -257,8 +227,6 @@ int crypto_sign(uint8_t *sm,
                 size_t *smlen,
                 const uint8_t *m,
                 size_t mlen,
-                const uint8_t *ctx,
-                size_t ctxlen,
                 const uint8_t *sk)
 {
   int ret;
@@ -266,7 +234,7 @@ int crypto_sign(uint8_t *sm,
 
   for(i = 0; i < mlen; ++i)
     sm[CRYPTO_BYTES + mlen - 1 - i] = m[mlen - 1 - i];
-  ret = crypto_sign_signature(sm, smlen, sm + CRYPTO_BYTES, mlen, ctx, ctxlen, sk);
+  ret = crypto_sign_signature(sm, smlen, sm + CRYPTO_BYTES, mlen, sk);
   *smlen += mlen;
   return ret;
 }
@@ -290,23 +258,29 @@ int crypto_sign_verify_internal(const uint8_t *sig,
                                 size_t siglen,
                                 const uint8_t *m,
                                 size_t mlen,
-                                const uint8_t *pre,
-                                size_t prelen,
                                 const uint8_t *pk)
 {
   unsigned int i;
   uint8_t buf[K*POLYW1_PACKEDBYTES];
   uint8_t rho[SEEDBYTES];
   uint8_t mu[CRHBYTES];
+  uint8_t tr[TRBYTES];
   uint8_t c[CTILDEBYTES];
   uint8_t c2[CTILDEBYTES];
   poly cp;
   polyvecl mat[K], z;
   polyveck t1, w1, h;
-  keccak_state state;
 
-  if(siglen != CRYPTO_BYTES)
+  uint8_t *tr_msg = (uint8_t*)malloc(TRBYTES + mlen);
+  uint8_t mu_buf[CRHBYTES + K*POLYW1_PACKEDBYTES];
+  
+
+  // 检查签名长度是否合法
+  if(siglen != CRYPTO_BYTES){
+    free(tr_msg);
+    tr_msg = NULL;
     return -1;
+  }
 
   unpack_pk(rho, &t1, pk);
   if(unpack_sig(c, &z, &h, sig))
@@ -315,13 +289,11 @@ int crypto_sign_verify_internal(const uint8_t *sig,
     return -1;
 
   /* Compute CRH(H(rho, t1), pre, msg) */
-  shake256(mu, TRBYTES, pk, CRYPTO_PUBLICKEYBYTES);
-  shake256_init(&state);
-  shake256_absorb(&state, mu, TRBYTES);
-  shake256_absorb(&state, pre, prelen);
-  shake256_absorb(&state, m, mlen);
-  shake256_finalize(&state);
-  shake256_squeeze(mu, CRHBYTES, &state);
+  ascon_xof(tr, TRBYTES, pk, CRYPTO_PUBLICKEYBYTES); // tr = H(pk)
+  memcpy(tr_msg, tr, TRBYTES); // tr_msg=[μ(64B)|]
+  memcpy(tr_msg + TRBYTES, m, mlen); // tr_msg=[μ(64B)|明文M（mlen B）]
+  ascon_xof(mu, CRHBYTES, tr_msg, TRBYTES + mlen); // mu = H([μ(32 B)|明文M（mlen B）])
+
 
   /* Matrix-vector multiplication; compute Az - c2^dt1 */
   poly_challenge(&cp, c);
@@ -345,15 +317,18 @@ int crypto_sign_verify_internal(const uint8_t *sig,
   polyveck_pack_w1(buf, &w1);
 
   /* Call random oracle and verify challenge */
-  shake256_init(&state);
-  shake256_absorb(&state, mu, CRHBYTES);
-  shake256_absorb(&state, buf, K*POLYW1_PACKEDBYTES);
-  shake256_finalize(&state);
-  shake256_squeeze(c2, CTILDEBYTES, &state);
+  memcpy(mu_buf, mu, CRHBYTES); // mu_buf=[μ|]
+  memcpy(mu_buf + CRHBYTES, buf, K*POLYW1_PACKEDBYTES);// mu_buf=[μ|w1(修正后的)]
+  ascon_xof(c2, CTILDEBYTES, mu_buf, CRHBYTES + K*POLYW1_PACKEDBYTES);// c2=H(μ|w1(修正后的))
   for(i = 0; i < CTILDEBYTES; ++i)
-    if(c[i] != c2[i])
+    if(c[i] != c2[i]){
+      free(tr_msg);
+      tr_msg = NULL;
       return -1;
+    }
 
+  free(tr_msg);
+  tr_msg = NULL;
   return 0;
 }
 
@@ -376,22 +351,9 @@ int crypto_sign_verify(const uint8_t *sig,
                        size_t siglen,
                        const uint8_t *m,
                        size_t mlen,
-                       const uint8_t *ctx,
-                       size_t ctxlen,
                        const uint8_t *pk)
 {
-  size_t i;
-  uint8_t pre[257];
-
-  if(ctxlen > 255)
-    return -1;
-
-  pre[0] = 0;
-  pre[1] = ctxlen;
-  for(i = 0; i < ctxlen; i++)
-    pre[2 + i] = ctx[i];
-
-  return crypto_sign_verify_internal(sig,siglen,m,mlen,pre,2+ctxlen,pk);
+  return crypto_sign_verify_internal(sig,siglen,m,mlen,pk);
 }
 
 /*************************************************
@@ -414,8 +376,6 @@ int crypto_sign_open(uint8_t *m,
                      size_t *mlen,
                      const uint8_t *sm,
                      size_t smlen,
-                     const uint8_t *ctx,
-                     size_t ctxlen,
                      const uint8_t *pk)
 {
   size_t i;
@@ -424,7 +384,7 @@ int crypto_sign_open(uint8_t *m,
     goto badsig;
 
   *mlen = smlen - CRYPTO_BYTES;
-  if(crypto_sign_verify(sm, CRYPTO_BYTES, sm + CRYPTO_BYTES, *mlen, ctx, ctxlen, pk))
+  if(crypto_sign_verify(sm, CRYPTO_BYTES, sm + CRYPTO_BYTES, *mlen, pk))
     goto badsig;
   else {
     /* All good, copy msg, return 0 */

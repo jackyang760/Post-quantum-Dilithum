@@ -1,0 +1,10 @@
+{
+    "files.associations": {
+        "params.h": "c",
+        "ascon_hash.h": "c",
+        "permutations.h": "c",
+        "cpucycles.h": "c",
+        "randombytes.h": "c",
+        "stdint.h": "c"
+    }
+}
