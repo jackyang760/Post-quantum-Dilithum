@@ -17,7 +17,7 @@ void polyvec_matrix_expand(polyvecl mat[K], const uint8_t rho[SEEDBYTES]) {
   unsigned int i, j;
 
   for(i = 0; i < K; ++i)
-    for(j = 0; j < L; ++j)
+    for(j = 0; j < DILITHIUM_L; ++j)
       poly_uniform(&mat[i].vec[j], rho, (i << 8) + j);
 }
 
@@ -35,21 +35,21 @@ void polyvec_matrix_pointwise_montgomery(polyveck *t, const polyvecl mat[K], con
 void polyvecl_uniform_eta(polyvecl *v, const uint8_t seed[CRHBYTES], uint16_t nonce) {
   unsigned int i;
 
-  for(i = 0; i < L; ++i)
+  for(i = 0; i < DILITHIUM_L; ++i)
     poly_uniform_eta(&v->vec[i], seed, nonce++);
 }
 
 void polyvecl_uniform_gamma1(polyvecl *v, const uint8_t seed[CRHBYTES], uint16_t nonce) {
   unsigned int i;
 
-  for(i = 0; i < L; ++i)
-    poly_uniform_gamma1(&v->vec[i], seed, L*nonce + i);
+  for(i = 0; i < DILITHIUM_L; ++i)
+    poly_uniform_gamma1(&v->vec[i], seed, DILITHIUM_L*nonce + i);
 }
 
 void polyvecl_reduce(polyvecl *v) {
   unsigned int i;
 
-  for(i = 0; i < L; ++i)
+  for(i = 0; i < DILITHIUM_L; ++i)
     poly_reduce(&v->vec[i]);
 }
 
@@ -66,7 +66,7 @@ void polyvecl_reduce(polyvecl *v) {
 void polyvecl_add(polyvecl *w, const polyvecl *u, const polyvecl *v) {
   unsigned int i;
 
-  for(i = 0; i < L; ++i)
+  for(i = 0; i < DILITHIUM_L; ++i)
     poly_add(&w->vec[i], &u->vec[i], &v->vec[i]);
 }
 
@@ -81,21 +81,21 @@ void polyvecl_add(polyvecl *w, const polyvecl *u, const polyvecl *v) {
 void polyvecl_ntt(polyvecl *v) {
   unsigned int i;
 
-  for(i = 0; i < L; ++i)
+  for(i = 0; i < DILITHIUM_L; ++i)
     poly_ntt(&v->vec[i]);
 }
 
 void polyvecl_invntt_tomont(polyvecl *v) {
   unsigned int i;
 
-  for(i = 0; i < L; ++i)
+  for(i = 0; i < DILITHIUM_L; ++i)
     poly_invntt_tomont(&v->vec[i]);
 }
 
 void polyvecl_pointwise_poly_montgomery(polyvecl *r, const poly *a, const polyvecl *v) {
   unsigned int i;
 
-  for(i = 0; i < L; ++i)
+  for(i = 0; i < DILITHIUM_L; ++i)
     poly_pointwise_montgomery(&r->vec[i], a, &v->vec[i]);
 }
 
@@ -118,7 +118,7 @@ void polyvecl_pointwise_acc_montgomery(poly *w,
   poly t;
 
   poly_pointwise_montgomery(w, &u->vec[0], &v->vec[0]);
-  for(i = 1; i < L; ++i) {
+  for(i = 1; i < DILITHIUM_L; ++i) {
     poly_pointwise_montgomery(&t, &u->vec[i], &v->vec[i]);
     poly_add(w, w, &t);
   }
@@ -139,7 +139,7 @@ void polyvecl_pointwise_acc_montgomery(poly *w,
 int polyvecl_chknorm(const polyvecl *v, int32_t bound)  {
   unsigned int i;
 
-  for(i = 0; i < L; ++i)
+  for(i = 0; i < DILITHIUM_L; ++i)
     if(poly_chknorm(&v->vec[i], bound))
       return 1;
 

@@ -5,6 +5,27 @@
         "permutations.h": "c",
         "cpucycles.h": "c",
         "randombytes.h": "c",
-        "stdint.h": "c"
+        "stdint.h": "c",
+        "cstdint": "c",
+        "sign.h": "c",
+        "config.h": "c",
+        "word.h": "c",
+        "symmetric.h": "c",
+        "random": "c",
+        "polyvec.h": "c",
+        "poly.h": "c",
+        "stddef.h": "c",
+        "charconv": "c",
+        "array": "c",
+        "functional": "c",
+        "tuple": "c",
+        "type_traits": "c",
+        "utility": "c",
+        "immintrin.h": "c",
+        "compare": "c",
+        "format": "c",
+        "numeric": "c",
+        "variant": "c",
+        "evp.h": "c"
     }
 }

@@ -7,14 +7,18 @@
 #define CRHBYTES 64
 #define TRBYTES 64
 #define RNDBYTES 32
-#define N 256
+#define DILITHIUM_N 256
 #define Q 8380417
 #define D 13
 #define ROOT_OF_UNITY 1753
 
+#define LUTBYTES 16 
+#define PARITYBYTES 4
+#define DIGESTBYTES 20
+
 #if DILITHIUM_MODE == 2
 #define K 4
-#define L 4
+#define DILITHIUM_L 4 
 #define ETA 2
 #define TAU 39
 #define BETA 78
@@ -25,7 +29,7 @@
 
 #elif DILITHIUM_MODE == 3
 #define K 6
-#define L 5
+#define DILITHIUM_L 5
 #define ETA 4
 #define TAU 49
 #define BETA 196
@@ -36,7 +40,7 @@
 
 #elif DILITHIUM_MODE == 5
 #define K 8
-#define L 7
+#define DILITHIUM_L 7
 #define ETA 2
 #define TAU 60
 #define BETA 120
@@ -72,9 +76,9 @@
 #define CRYPTO_PUBLICKEYBYTES (SEEDBYTES + K*POLYT1_PACKEDBYTES)
 #define CRYPTO_SECRETKEYBYTES (2*SEEDBYTES \
                                + TRBYTES \
-                               + L*POLYETA_PACKEDBYTES \
+                               + DILITHIUM_L*POLYETA_PACKEDBYTES \
                                + K*POLYETA_PACKEDBYTES \
                                + K*POLYT0_PACKEDBYTES)
-#define CRYPTO_BYTES (CTILDEBYTES + L*POLYZ_PACKEDBYTES + POLYVECH_PACKEDBYTES)
+#define CRYPTO_BYTES (CTILDEBYTES + DILITHIUM_L*POLYZ_PACKEDBYTES + POLYVECH_PACKEDBYTES)
 
 #endif

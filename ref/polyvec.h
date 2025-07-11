@@ -7,7 +7,7 @@
 
 /* Vectors of polynomials of length L */
 typedef struct {
-  poly vec[L];
+  poly vec[DILITHIUM_L];
 } polyvecl;
 
 #define polyvecl_uniform_eta DILITHIUM_NAMESPACE(polyvecl_uniform_eta)

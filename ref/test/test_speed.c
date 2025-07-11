@@ -6,7 +6,8 @@
 #include "cpucycles.h"
 #include "speed_print.h"
 
-#define NTESTS 1000
+// #define NTESTS 1000
+#define NTESTS 10000
 
 uint64_t t[NTESTS];
 
@@ -18,6 +19,7 @@ int main(void)
   uint8_t sk[CRYPTO_SECRETKEYBYTES];
   uint8_t sig[CRYPTO_BYTES];
   uint8_t seed[CRHBYTES];
+  uint8_t tr[TRBYTES];
   polyvecl mat[K];
   poly *a = &mat[0].vec[0];
   poly *b = &mat[0].vec[1];
@@ -82,6 +84,20 @@ int main(void)
     crypto_sign_verify(sig, CRYPTO_BYTES, sig, CRHBYTES, pk);
   }
   print_results("Verify:", t, NTESTS);
+
+  for(i = 0; i < NTESTS; ++i) {
+    t[i] = cpucycles();
+    ascon_xof(tr, TRBYTES, pk, CRYPTO_PUBLICKEYBYTES);
+  }
+  print_results("hash(PK):", t, NTESTS);
+
+  for(i = 0; i < NTESTS; ++i) {
+    t[i] = cpucycles();
+    crypto_sign_keypair(pk, sk);
+    crypto_sign_signature(sig, &siglen, sig, CRHBYTES, sk);
+    crypto_sign_verify(sig, CRYPTO_BYTES, sig, CRHBYTES, pk);
+  }
+  print_results("TotalCycles:", t, NTESTS);
 
   return 0;
 }

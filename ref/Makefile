@@ -4,16 +4,20 @@ CFLAGS += -Wall -Wextra -Wpedantic -Wmissing-prototypes -Wredundant-decls \
 NISTFLAGS += -Wno-unused-result -O3 -fomit-frame-pointer
 SOURCES = sign.c packing.c polyvec.c poly.c ntt.c reduce.c rounding.c
 HEADERS = config.h params.h api.h sign.h packing.h polyvec.h poly.h ntt.h \
-  reduce.h rounding.h randombytes.h
-ASCON_SOURCES = $(SOURCES) ascon_hash.c
+  reduce.h rounding.h  randombytes.h
+ASCON_SOURCES = $(SOURCES) ascon_hash.c 
 ASCON_HEADERS = $(HEADERS) ascon_hash.h ascon.h constants.h permutations.h round.h word.h
+LDFLAGS = -lssl -lcrypto
 
 .PHONY: all speed shared clean
 
 all: \
   test/test_dilithium2 \
   test/test_dilithium3 \
-  test/test_dilithium5 
+  test/test_dilithium5 \
+  test/test_dilithium2_once \
+  test/test_dilithium3_once \
+  test/test_dilithium5_once 
 
 speed: \
   test/test_speed2 \
@@ -42,39 +46,54 @@ libpqcrystals_dilithium5_ref.so: $(SOURCES) $(HEADERS)
 test/test_dilithium2: test/test_dilithium.c randombytes.c $(ASCON_SOURCES) \
   $(ASCON_HEADERS)
 	$(CC) $(CFLAGS) -DDILITHIUM_MODE=2 \
-	  -o $@ $< randombytes.c $(ASCON_SOURCES)
+	  -o $@ $< randombytes.c $(ASCON_SOURCES) 
 
 test/test_dilithium3: test/test_dilithium.c randombytes.c $(ASCON_SOURCES) \
   $(ASCON_HEADERS)
 	$(CC) $(CFLAGS) -DDILITHIUM_MODE=3 \
-	  -o $@ $< randombytes.c $(ASCON_SOURCES)
+	  -o $@ $< randombytes.c $(ASCON_SOURCES) 
 
 test/test_dilithium5: test/test_dilithium.c randombytes.c $(ASCON_SOURCES) \
   $(ASCON_HEADERS)
 	$(CC) $(CFLAGS) -DDILITHIUM_MODE=5 \
-	  -o $@ $< randombytes.c $(ASCON_SOURCES)
+	  -o $@ $< randombytes.c $(ASCON_SOURCES) 
+
+test/test_dilithium2_once: test/test_dilithium_once.c randombytes.c $(ASCON_SOURCES) \
+  $(ASCON_HEADERS)
+	$(CC) $(CFLAGS) -DDILITHIUM_MODE=2 \
+	  -o $@ $< randombytes.c $(ASCON_SOURCES) $(LDFLAGS)
+
+test/test_dilithium3_once: test/test_dilithium_once.c randombytes.c $(ASCON_SOURCES) \
+  $(ASCON_HEADERS)
+	$(CC) $(CFLAGS) -DDILITHIUM_MODE=3 \
+	  -o $@ $< randombytes.c $(ASCON_SOURCES) $(LDFLAGS)
+
+test/test_dilithium5_once: test/test_dilithium_once.c randombytes.c $(ASCON_SOURCES) \
+  $(ASCON_HEADERS)
+	$(CC) $(CFLAGS) -DDILITHIUM_MODE=5 \
+	  -o $@ $< randombytes.c $(ASCON_SOURCES) $(LDFLAGS)
 
 test/test_speed2: test/test_speed.c test/speed_print.c test/speed_print.h \
   test/cpucycles.c test/cpucycles.h randombytes.c $(ASCON_SOURCES) \
   $(ASCON_HEADERS)
 	$(CC) $(CFLAGS) -DDILITHIUM_MODE=2 \
 	  -o $@ $< test/speed_print.c test/cpucycles.c randombytes.c \
-	  $(ASCON_SOURCES)
+	  $(ASCON_SOURCES) 
 
 test/test_speed3: test/test_speed.c test/speed_print.c test/speed_print.h \
   test/cpucycles.c test/cpucycles.h randombytes.c $(ASCON_SOURCES) \
   $(ASCON_HEADERS)
 	$(CC) $(CFLAGS) -DDILITHIUM_MODE=3 \
 	  -o $@ $< test/speed_print.c test/cpucycles.c randombytes.c \
-	  $(ASCON_SOURCES)
+	  $(ASCON_SOURCES) 
 
 test/test_speed5: test/test_speed.c test/speed_print.c test/speed_print.h \
   test/cpucycles.c test/cpucycles.h randombytes.c $(ASCON_SOURCES) \
   $(ASCON_HEADERS)
 	$(CC) $(CFLAGS) -DDILITHIUM_MODE=5 \
 	  -o $@ $< test/speed_print.c test/cpucycles.c randombytes.c \
-	  $(ASCON_SOURCES)
-
+	  $(ASCON_SOURCES) 
+	  
 clean:
 	rm -f *~ test/*~ *.gcno *.gcda *.lcov
 	rm -f libpqcrystals_dilithium2_ref.so
@@ -83,6 +102,9 @@ clean:
 	rm -f test/test_dilithium2
 	rm -f test/test_dilithium3
 	rm -f test/test_dilithium5
+	rm -f test/test_dilithium2_once
+	rm -f test/test_dilithium3_once
+	rm -f test/test_dilithium5_once
 	rm -f test/test_speed2
 	rm -f test/test_speed3
 	rm -f test/test_speed5

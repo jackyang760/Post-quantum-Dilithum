@@ -31,8 +31,8 @@ int crypto_sign_keypair(uint8_t *pk, uint8_t *sk) {
   /* Get randomness for rho, rhoprime and key */
   randombytes(seedbuf, SEEDBYTES);
   seedbuf[SEEDBYTES+0] = K;
-  seedbuf[SEEDBYTES+1] = L;
-  ascon_xof(seedbuf, 2*SEEDBYTES + CRHBYTES, seedbuf, SEEDBYTES+2);
+  seedbuf[SEEDBYTES+1] = DILITHIUM_L;
+  ascon_xof_P12(seedbuf, 2*SEEDBYTES + CRHBYTES, seedbuf, SEEDBYTES+2);
 
   rho = seedbuf;
   rhoprime = rho + SEEDBYTES;
@@ -43,7 +43,7 @@ int crypto_sign_keypair(uint8_t *pk, uint8_t *sk) {
 
   /* Sample short vectors s1 and s2 */
   polyvecl_uniform_eta(&s1, rhoprime, 0);
-  polyveck_uniform_eta(&s2, rhoprime, L);
+  polyveck_uniform_eta(&s2, rhoprime, DILITHIUM_L);
 
   /* Matrix-vector multiplication */
   s1hat = s1;
@@ -61,7 +61,8 @@ int crypto_sign_keypair(uint8_t *pk, uint8_t *sk) {
   pack_pk(pk, rho, &t1);
 
   /* Compute H(rho, t1) and write secret key */
-  ascon_xof(tr, TRBYTES, pk, CRYPTO_PUBLICKEYBYTES); 
+  ascon_xof(tr, TRBYTES, pk, CRYPTO_PUBLICKEYBYTES);
+  
   pack_sk(sk, rho, tr, key, &t0, &s1, &s2);
 
   return 0;
@@ -91,14 +92,14 @@ int crypto_sign_signature_internal(uint8_t *sig,
 {
   unsigned int n;
   uint8_t seedbuf[2*SEEDBYTES + TRBYTES + 2*CRHBYTES];
-  uint8_t *rho, *tr, *key, *mu, *rhoprime;
+  uint8_t *rho, *tr, *key, *mu,  *rhoprime;
   uint16_t nonce = 0;
   polyvecl mat[K], s1, y, z;
   polyveck t0, s2, w1, w0, h;
   poly cp;
-  
-  uint8_t *tr_msg = (uint8_t*)malloc(TRBYTES + mlen);
-  uint8_t mu_sig[CRHBYTES + K*POLYW1_PACKEDBYTES];
+
+  // 使用流式接口
+  ascon_state_t state;
 
   rho = seedbuf;
   tr = rho + SEEDBYTES;
@@ -107,13 +108,20 @@ int crypto_sign_signature_internal(uint8_t *sig,
   rhoprime = mu + CRHBYTES;
   unpack_sk(rho, tr, key, &t0, &s1, &s2, sk);
 
-  /* Compute mu = CRH(tr, pre, msg) */
-  memcpy(tr_msg, tr, TRBYTES);
-  memcpy(tr_msg + TRBYTES, m, mlen);
-  ascon_xof(mu, CRHBYTES, tr_msg, TRBYTES + mlen);
+  /* Compute mu = CRH(tr, msg) */
+  // 初始化哈希
+  ascon_init(&state);
+  ascon_absorb(&state, tr, TRBYTES);
+  ascon_absorb(&state, m, mlen);    
+  ascon_finalize(&state);
+  ascon_squeeze(&state, mu, CRHBYTES);
 
-  /* Compute rhoprime = CRH(key, rnd, mu) */
-  ascon_xof(rhoprime, CRHBYTES, key, SEEDBYTES + CRHBYTES);
+  /* Compute rhoprime = CRH(key, mu) */
+  ascon_init(&state);
+  ascon_absorb(&state, key, SEEDBYTES);
+  ascon_absorb(&state, mu, CRHBYTES);    
+  ascon_finalize(&state);
+  ascon_squeeze(&state, rhoprime, CRHBYTES);
 
   /* Expand matrix and transform vectors */
   polyvec_matrix_expand(mat, rho);
@@ -137,9 +145,17 @@ rej:
   polyveck_decompose(&w1, &w0, &w1);
   polyveck_pack_w1(sig, &w1);
   // 生成挑战cp：
-  memcpy(mu_sig, mu, CRHBYTES); // mu_sig = （μ|）
-  memcpy(mu_sig + CRHBYTES, sig, K*POLYW1_PACKEDBYTES); // mu_sig = （μ|w1）
-  ascon_xof(sig, CTILDEBYTES, mu_sig, CRHBYTES + K*POLYW1_PACKEDBYTES); // c = H(μ|W1) 哈希mu和w1的压缩形式（如4×192B=768B）得到32B的挑战种子c，写入sig头部32B
+
+  // 初始化哈希
+  ascon_init(&state);
+  // 吸收tr
+  ascon_absorb(&state, mu, CRHBYTES);
+  // 吸收w1
+  ascon_absorb(&state, sig, K*POLYW1_PACKEDBYTES);
+  // 计算挑战
+  ascon_finalize(&state);
+  ascon_squeeze(&state, sig, CTILDEBYTES);
+
   poly_challenge(&cp, sig);
   poly_ntt(&cp);
 
@@ -175,8 +191,6 @@ rej:
   /* Write signature */
   pack_sig(sig, sig, &z, &h);
   *siglen = CRYPTO_BYTES;
-  free(tr_msg);
-  tr_msg = NULL;
   return 0;
 }
 
@@ -264,21 +278,16 @@ int crypto_sign_verify_internal(const uint8_t *sig,
   uint8_t buf[K*POLYW1_PACKEDBYTES];
   uint8_t rho[SEEDBYTES];
   uint8_t mu[CRHBYTES];
-  uint8_t tr[TRBYTES];
   uint8_t c[CTILDEBYTES];
   uint8_t c2[CTILDEBYTES];
   poly cp;
   polyvecl mat[K], z;
   polyveck t1, w1, h;
 
-  uint8_t *tr_msg = (uint8_t*)malloc(TRBYTES + mlen);
-  uint8_t mu_buf[CRHBYTES + K*POLYW1_PACKEDBYTES];
-  
+  ascon_state_t state;
 
   // 检查签名长度是否合法
   if(siglen != CRYPTO_BYTES){
-    free(tr_msg);
-    tr_msg = NULL;
     return -1;
   }
 
@@ -288,12 +297,13 @@ int crypto_sign_verify_internal(const uint8_t *sig,
   if(polyvecl_chknorm(&z, GAMMA1 - BETA))
     return -1;
 
-  /* Compute CRH(H(rho, t1), pre, msg) */
-  ascon_xof(tr, TRBYTES, pk, CRYPTO_PUBLICKEYBYTES); // tr = H(pk)
-  memcpy(tr_msg, tr, TRBYTES); // tr_msg=[μ(64B)|]
-  memcpy(tr_msg + TRBYTES, m, mlen); // tr_msg=[μ(64B)|明文M（mlen B）]
-  ascon_xof(mu, CRHBYTES, tr_msg, TRBYTES + mlen); // mu = H([μ(32 B)|明文M（mlen B）])
-
+  /* Compute CRH(H(rho, t1),  msg) */
+  ascon_xof(mu, TRBYTES, pk, CRYPTO_PUBLICKEYBYTES);
+  ascon_init(&state);
+  ascon_absorb(&state, mu, TRBYTES);
+  ascon_absorb(&state, m, mlen);    
+  ascon_finalize(&state);
+  ascon_squeeze(&state, mu, CRHBYTES);
 
   /* Matrix-vector multiplication; compute Az - c2^dt1 */
   poly_challenge(&cp, c);
@@ -317,18 +327,19 @@ int crypto_sign_verify_internal(const uint8_t *sig,
   polyveck_pack_w1(buf, &w1);
 
   /* Call random oracle and verify challenge */
-  memcpy(mu_buf, mu, CRHBYTES); // mu_buf=[μ|]
-  memcpy(mu_buf + CRHBYTES, buf, K*POLYW1_PACKEDBYTES);// mu_buf=[μ|w1(修正后的)]
-  ascon_xof(c2, CTILDEBYTES, mu_buf, CRHBYTES + K*POLYW1_PACKEDBYTES);// c2=H(μ|w1(修正后的))
+
+  // 初始化哈希
+  ascon_init(&state);
+  ascon_absorb(&state, mu, CRHBYTES);
+  ascon_absorb(&state, buf, K*POLYW1_PACKEDBYTES);    
+  ascon_finalize(&state);
+  ascon_squeeze(&state, c2, CTILDEBYTES);
+
   for(i = 0; i < CTILDEBYTES; ++i)
     if(c[i] != c2[i]){
-      free(tr_msg);
-      tr_msg = NULL;
       return -1;
     }
 
-  free(tr_msg);
-  tr_msg = NULL;
   return 0;
 }
 

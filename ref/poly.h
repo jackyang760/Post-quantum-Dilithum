@@ -6,7 +6,7 @@
 #include "ascon_hash.h"
 
 typedef struct {
-  int32_t coeffs[N];
+  int32_t coeffs[DILITHIUM_N];
 } poly;
 
 #define poly_reduce DILITHIUM_NAMESPACE(poly_reduce)

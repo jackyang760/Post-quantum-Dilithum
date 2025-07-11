@@ -3,7 +3,7 @@
 #include "ntt.h"
 #include "reduce.h"
 
-static const int32_t zetas[N] = {
+static const int32_t zetas[DILITHIUM_N] = {
          0,    25847, -2608894,  -518909,   237124,  -777960,  -876248,   466468,
    1826347,  2353451,  -359251, -2091905,  3119733, -2884855,  3111497,  2680103,
    2725464,  1024112, -1079900,  3585928,  -549488, -1119584,  2619752, -2108549,
@@ -46,13 +46,13 @@ static const int32_t zetas[N] = {
 *
 * Arguments:   - uint32_t p[N]: input/output coefficient array
 **************************************************/
-void ntt(int32_t a[N]) {
+void ntt(int32_t a[DILITHIUM_N]) {
   unsigned int len, start, j, k;
   int32_t zeta, t;
 
   k = 0;
   for(len = 128; len > 0; len >>= 1) {
-    for(start = 0; start < N; start = j + len) {
+    for(start = 0; start < DILITHIUM_N; start = j + len) {
       zeta = zetas[++k];
       for(j = start; j < start + len; ++j) {
         t = montgomery_reduce((int64_t)zeta * a[j + len]);
@@ -62,7 +62,6 @@ void ntt(int32_t a[N]) {
     }
   }
 }
-
 /*************************************************
 * Name:        invntt_tomont
 *
@@ -74,14 +73,14 @@ void ntt(int32_t a[N]) {
 *
 * Arguments:   - uint32_t p[N]: input/output coefficient array
 **************************************************/
-void invntt_tomont(int32_t a[N]) {
+void invntt_tomont(int32_t a[DILITHIUM_N]) {
   unsigned int start, len, j, k;
   int32_t t, zeta;
   const int32_t f = 41978; // mont^2/256
 
   k = 256;
-  for(len = 1; len < N; len <<= 1) {
-    for(start = 0; start < N; start = j + len) {
+  for(len = 1; len < DILITHIUM_N; len <<= 1) {
+    for(start = 0; start < DILITHIUM_N; start = j + len) {
       zeta = -zetas[--k];
       for(j = start; j < start + len; ++j) {
         t = a[j];
@@ -92,7 +91,43 @@ void invntt_tomont(int32_t a[N]) {
     }
   }
 
-  for(j = 0; j < N; ++j) {
+  for(j = 0; j < DILITHIUM_N; ++j) {
     a[j] = montgomery_reduce((int64_t)f * a[j]);
   }
 }
+// void invntt_tomont(int32_t a[N]) {
+//   unsigned int start, len, j, k;
+//   int32_t t, zeta;
+//   const int32_t f = 41978;
+//   k = 256;
+  
+//   for (len = 1; len < N; len <<= 1) {
+//       for (start = 0; start < N; start = j + len) {
+//           zeta = -zetas[--k];
+//           // int table_idx = k; // 逆序索引
+          
+//           for (j = start; j < start + len; ++j) {
+//               int32_t val = a[j + len];
+              
+//               // 查表优化路径：当值在[-4,4]范围内
+//               if (val >= -4 && val <= 4) {
+//                   t = a[j];
+//                   a[j] = t + val;
+//                   a[j + len] = montgomery_reduce((int64_t)zeta * (t - val));
+//               }
+//               // 常规计算路径
+//               else {
+//                   t = a[j];
+//                   a[j] = t + a[j + len];
+//                   a[j + len] = t - a[j + len];
+//                   a[j + len] = montgomery_reduce((int64_t)zeta * a[j + len]);
+//               }
+//           }
+//       }
+//   }
+  
+//   // 最终乘法不变
+//   for (j = 0; j < N; ++j) {
+//       a[j] = montgomery_reduce((int64_t)f * a[j]);
+//   }
+// }
